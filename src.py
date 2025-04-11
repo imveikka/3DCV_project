@@ -1,6 +1,7 @@
 import numpy as np
 import cv2 as cv
 from PIL import Image
+from scipy.linalg import rq
 
 
 def load_img(path):
@@ -57,53 +58,95 @@ def select_points(img):
     return np.stack(points)
 
 
-def calibrate(points2d, points3d, normalize=False):
-    # Implement a direct linear transformation (DLT) algorithm to calibrate the camera.
+def calibrate(points2d, points3d):
 
-    # Convert the 2D & 3D points to homogeneous coordinates
-    points2d = np.hstack((points2d, np.ones((points2d.shape[0], 1))))
-    points3d = np.hstack((points3d, np.ones((points3d.shape[0], 1))))
+    """
+    Performs direct linear transform (DLT)
 
-    if normalize:
-        # Nomalize the 2D points
-        x_mean = np.mean(points2d[:, 0])
-        y_mean = np.mean(points2d[:, 1])
-        d_bar = np.mean(
-            np.sqrt((points2d[:, 0] - x_mean) ** 2 + (points2d[:, 1] - y_mean) ** 2)
-        )
-        S = np.sqrt(2) / d_bar
-        T = np.array([[S, 0, -S * x_mean], [0, S, -S * y_mean], [0, 0, 1]])
-        points2d = np.dot(T, points2d.T).T
+    Instead of using SVD, we solve min(|Am + [x, y]|²),
+    because lecture material gives the constraint m(3, 4) = 1.
+    Now, numpy.linalg.lstsq is used to solve the system.
+    Having constraint |m|_2 = 1, we could use SVD to solve
+    all the parameters of M.
+    """
 
-        # Normalize the 3D points
-        x_mean = np.mean(points3d[:, 0])
-        y_mean = np.mean(points3d[:, 1])
-        z_mean = np.mean(points3d[:, 2])
-        d_bar = np.mean(np.sqrt((points3d[:, 0] - x_mean) ** 2 + (points3d[:, 1] - y_mean) ** 2 + (points3d[:, 2] - z_mean) ** 2))
-        S = np.sqrt(3) / d_bar
-        U = np.array(
-            [
-                [S, 0, 0, -S * x_mean],
-                [0, S, 0, -S * y_mean],
-                [0, 0, S, -S * z_mean],
-                [0, 0, 0, 1],
-            ]
-        )
-        points3d = np.dot(U, points3d.T).T
+    n = len(points3d)
+    biased = np.concat((points3d, np.ones((n, 1))), 1)
 
-    # Create the matrix A
-    A = np.zeros((2 * points2d.shape[0], 12))
-    for i in range(points2d.shape[0]):
-        A[2 * i, 0:4] = points3d[i, :]
-        A[2 * i, 8:12] = -points2d[i, 0] * points3d[i, :]
-        A[2 * i + 1, 4:8] = points3d[i, :]
-        A[2 * i + 1, 8:12] = -points2d[i, 1] * points3d[i, :]
+    top_left = np.concat((biased, np.zeros((n, 4))), 1)
+    bot_left = np.roll(top_left, 4, axis=1)
 
-    # Solve the linear system of equations Am = 0
-    _, _, V = np.linalg.svd(A)
-    m = V[-1, :].reshape((3, 4))
+    top_right = -biased * points2d[:, 0:1]
+    bot_right = -biased * points2d[:, 1:2]
 
-    if normalize:
-        # Denormalize the camera matrix
-        m = np.linalg.inv(T) @ m @ U
-    return m
+    system = np.concat(
+        (np.concat((top_left, top_right), 1), 
+         np.concat((bot_left, bot_right), 1)), 0
+    )
+
+    m, _, _, _ = np.linalg.lstsq(system[:, :-1], -system[:, -1])
+    M = np.append(m, 1).reshape(3, 4)
+
+    return M
+
+
+def calibrate_norm(points2d, points3d):
+
+    """DLT woth normalization"""
+
+    x_hat, y_hat = points2d.mean(0)
+    d_hat = np.linalg.norm(points2d - np.array([x_hat, y_hat]), 1).mean()
+
+    X_hat, Y_hat, Z_hat = points3d.mean(0)
+    D_hat = np.linalg.norm(points3d - np.array([X_hat, Y_hat, Z_hat]), 1).mean()
+
+    root2 = np.sqrt(2)
+    root3 = np.sqrt(3)
+
+    T = np.array([[root2 / d_hat, 0, -root2 * x_hat / d_hat],
+                  [0, root2 / d_hat, -root2 * y_hat / d_hat],
+                  [0, 0, 1]])
+
+    U = np.array([[root3 / D_hat, 0, 0, -root3 * X_hat / D_hat],
+                  [0, root3 / D_hat, 0, -root3 * Y_hat / D_hat],
+                  [0, 0, root3 / D_hat, -root3 * Z_hat / D_hat],
+                  [0, 0, 0, 1]]) 
+
+    normalized_2d_pts = points2d * np.diag(T)[:-1] + T[:-1, -1]
+    normalized_3d_pts = points3d * np.diag(U)[:-1] + U[:-1, -1]
+
+    M = calibrate(normalized_2d_pts, normalized_3d_pts)
+    denormalized_M = np.linalg.inv(T) @ M @ U
+
+    return denormalized_M
+
+
+def decompose_projection(M):
+    # implement the decomposition
+    X = np.linalg.det([M[:,1], M[:,2], M[:,3]])
+    Y = -np.linalg.det([M[:,0], M[:,2], M[:,3]])
+    Z = np.linalg.det([M[:,0], M[:,1], M[:,3]])
+    W = -np.linalg.det([M[:,0], M[:,1], M[:,2]])
+
+    C = np.array([[X, Y, Z]]).T / W
+    K, R = rq(M @ np.linalg.pinv(np.hstack([np.eye(3),-C])))
+    # rq decomposition can throw a weird result, this make sure that the result is valid for our purposes
+    R = R * np.sign(K[-1,-1])
+    K = K * np.sign(K[-1,-1])
+
+    return K, R, C
+
+
+def plot_frame(ax, T, name=""):
+    """Function that plots the world frames"""
+    # Origin
+    l = 20
+    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 0], T[1, 0], T[2, 0], color="r", length=l,)
+    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 1], T[1, 1], T[2, 1], color="g", length=l,)
+    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 2], T[1, 2], T[2, 2], color="b", length=l,)
+
+    ax.text(T[0, 3] + T[0, 0] * l, T[1, 3] + T[1, 0] * l, T[2, 3] + T[2, 0] * l, f"{name}X")
+    ax.text(T[0, 3] + T[0, 1] * l, T[1, 3] + T[1, 1] * l, T[2, 3] + T[2, 1] * l, f"{name}Y")
+    ax.text(T[0, 3] + T[0, 2] * l, T[1, 3] + T[1, 2] * l, T[2, 3] + T[2, 2] * l, f"{name}Z")
+
+    ax.set_aspect("equal", adjustable="box")
