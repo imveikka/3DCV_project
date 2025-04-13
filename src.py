@@ -62,12 +62,6 @@ def calibrate(points2d, points3d):
 
     """
     Performs direct linear transform (DLT)
-
-    Instead of using SVD, we solve min(|Am + [x, y]|²),
-    because lecture material gives the constraint m(3, 4) = 1.
-    Now, numpy.linalg.lstsq is used to solve the system.
-    Having constraint |m|_2 = 1, we could use SVD to solve
-    all the parameters of M.
     """
 
     n = len(points3d)
@@ -84,8 +78,9 @@ def calibrate(points2d, points3d):
          np.concat((bot_left, bot_right), 1)), 0
     )
 
-    m, _, _, _ = np.linalg.lstsq(system[:, :-1], -system[:, -1])
-    M = np.append(m, 1).reshape(3, 4)
+    _, _, Vh = np.linalg.svd(system)
+    m = Vh[-1]
+    M = m.reshape(3, 4) / m[-1]
 
     return M
 
@@ -121,32 +116,46 @@ def calibrate_norm(points2d, points3d):
     return denormalized_M
 
 
-def decompose_projection(M):
-    # implement the decomposition
-    X = np.linalg.det([M[:,1], M[:,2], M[:,3]])
-    Y = -np.linalg.det([M[:,0], M[:,2], M[:,3]])
-    Z = np.linalg.det([M[:,0], M[:,1], M[:,3]])
-    W = -np.linalg.det([M[:,0], M[:,1], M[:,2]])
+def extract_params(M):
 
-    C = np.array([[X, Y, Z]]).T / W
-    K, R = rq(M @ np.linalg.pinv(np.hstack([np.eye(3),-C])))
-    # rq decomposition can throw a weird result, this make sure that the result is valid for our purposes
-    R = R * np.sign(K[-1,-1])
-    K = K * np.sign(K[-1,-1])
+    """
+    Reference: https://www.youtube.com/watch?v=2XM2Rb2pfyQ
+    """
 
-    return K, R, C
+    K, R = rq(M[:, :3])
+    t = np.linalg.inv(K) @ M[:, 3:4]
+
+    intrinsic_params = np.pad(K, ((0, 0), (0, 1)))
+    extrinsic_params = np.concat((R, t), 1)
+    extrinsic_params = np.concat((extrinsic_params, [[0, 0, 0, 1]]))
+
+    return intrinsic_params, extrinsic_params
 
 
-def plot_frame(ax, T, name=""):
-    """Function that plots the world frames"""
-    # Origin
-    l = 20
-    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 0], T[1, 0], T[2, 0], color="r", length=l,)
-    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 1], T[1, 1], T[2, 1], color="g", length=l,)
-    ax.quiver(T[0, 3], T[1, 3], T[2, 3], T[0, 2], T[1, 2], T[2, 2], color="b", length=l,)
+def plot_frame(extrinsic, ax, name="", s=10, l=10):
 
-    ax.text(T[0, 3] + T[0, 0] * l, T[1, 3] + T[1, 0] * l, T[2, 3] + T[2, 0] * l, f"{name}X")
-    ax.text(T[0, 3] + T[0, 1] * l, T[1, 3] + T[1, 1] * l, T[2, 3] + T[2, 1] * l, f"{name}Y")
-    ax.text(T[0, 3] + T[0, 2] * l, T[1, 3] + T[1, 2] * l, T[2, 3] + T[2, 2] * l, f"{name}Z")
+    """
+    Function that plots the world frames from
+    extrinsic matrix: 4x4 matrix
+    E = [R t]
+        [0 1]
+    Note: RR^t = I
 
-    ax.set_aspect("equal", adjustable="box")
+    Reference: https://math.stackexchange.com/questions/82602/how-to-find-camera-position-and-rotation-from-a-4x4-matrix
+    """
+
+    R = extrinsic[:3, :3]
+    t = extrinsic[:3, 3]
+
+    center = -R.T @ t
+    Ux, Uy, Uz = (R.T @ np.eye(3)).T
+
+    ax.scatter(*center, c='k', s=s, marker='x', label='camera position')
+
+    ax.quiver(*center, *Ux, color="r", length=l,)
+    ax.quiver(*center, *Uy, color="g", length=l,)
+    ax.quiver(*center, *Uz, color="b", length=l,)
+
+    ax.text(*(center + Ux * l), f"{name}X")
+    ax.text(*(center + Uy * l), f"{name}Y")
+    ax.text(*(center + Uz * l), f"{name}Z")
