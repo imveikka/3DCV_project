@@ -4,6 +4,7 @@ from PIL import Image
 from scipy.linalg import rq
 from pathlib import Path
 from matplotlib.axes import Axes
+import skimage
 
 
 def load_img(path: str | Path) -> Image:
@@ -167,7 +168,7 @@ def plot_frame(extrinsic: np.array, ax: Axes, name: str = "",
     ax.text(*(center + Uz * l), f"{name}Z")
 
 
-def locate_bot(img: Image) -> np.array:
+def locate_bot(img: Image) -> list[np.array]:
 
     """
     Locates robot purple disk and two yellow bars.
@@ -180,26 +181,66 @@ def locate_bot(img: Image) -> np.array:
 
     # threshold color in HSV
     hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
-    mask_y = cv.inRange(hsv, (20, 90, 120), (40, 255, 255))
-    mask_m = cv.inRange(hsv, (140, 90, 30), (160, 255, 255))
+    mask_y = cv.inRange(hsv, (20, 40, 120), (40, 255, 255))
+    mask_m = cv.inRange(hsv, (140, 40, 30), (160, 255, 255))
     mask = mask_m | mask_y
 
     # simplify mask
-    kernel = np.ones((5, 5), dtype=np.uint8)
-    opened = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)
-    closed = cv.morphologyEx(opened, cv.MORPH_OPEN, kernel)
-    
-    # collect contours and their moments
-    contours, _ = cv.findContours(closed, cv.RETR_LIST, cv.CHAIN_APPROX_NONE)
-    moments = map(cv.moments, contours)
-    moments = np.array([[*map(m.get, ('m00', 'm10', 'm01'))] for m in moments])
-    
+    opened = cv.morphologyEx(mask, cv.MORPH_OPEN, np.ones((7, 7)))
+    closed = cv.morphologyEx(opened, cv.MORPH_CLOSE, np.ones((11, 11)))
+
+    labels = skimage.measure.label(closed)
+    regions = skimage.measure.regionprops(labels)
+
     # filter out 3 largest contours based on area (ideally disk and bars)
-    areas = moments[:, 0]
+    areas = np.array([r.area for r in regions])
     idx = areas.argsort()[::-1]
-    actual = moments[idx[:3]]
+    coords = [regions[i].coords[:, ::-1] for i in idx[:3]]
 
-    # compute centroids (center of mass)
-    centroids = actual[:, 1:] / actual[:, :1] # xy
+    return coords
 
-    return centroids
+
+def locate_rest(img: Image) -> list[np.array]:
+
+    """
+    Locates red, green and blue cubes and goals from the image.
+    Returns points from the image plane.
+
+    [[red_cube, red_goal], [green_cube, green_goal], [blue_cube, blue_goal]]
+    """
+
+    img = np.array(img)
+
+    # threshold color in HSV
+    hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
+
+    red = cv.inRange(hsv, (0, 90, 50), (10, 255, 255))
+    red += cv.inRange(hsv, (170, 90, 50), (179, 255, 255))
+    green = cv.inRange(hsv, (40, 30, 30), (70, 255, 255))
+    blue = cv.inRange(hsv, (110, 30, 30), (130, 255, 255))
+
+    # simplify masks
+    red = cv.morphologyEx(red, cv.MORPH_OPEN, np.ones((7, 7)))
+    red = cv.morphologyEx(red, cv.MORPH_CLOSE, np.ones((11, 11)))
+    green = cv.morphologyEx(green, cv.MORPH_OPEN, np.ones((7, 7)))
+    green = cv.morphologyEx(green, cv.MORPH_CLOSE, np.ones((11, 11)))
+    blue = cv.morphologyEx(blue, cv.MORPH_OPEN, np.ones((7, 7)))
+    blue = cv.morphologyEx(blue, cv.MORPH_CLOSE, np.ones((11, 11)))
+
+    coords = []
+    for color in (red, green, blue):
+        labels = skimage.measure.label(color)
+        regions = skimage.measure.regionprops(labels)
+        # filter out 2 largest contours based on area (ideally cube and goal)
+        areas = np.array([r.area for r in regions])
+        idx = areas.argsort()[::-1]
+        regions = [regions[i] for i in idx[:2]]
+        y, x = map(int, regions[0].centroid)
+        if color[y, x] != 0: # cube
+            coord = [r.coords[:, ::-1] for r in regions]
+        else: # goal
+            coord = [r.coords[:, ::-1] for r in regions[::-1]]
+        coords.append(coord)
+
+    return coords
+
