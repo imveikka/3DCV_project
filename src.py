@@ -2,9 +2,11 @@ import numpy as np
 import cv2 as cv
 from PIL import Image
 from scipy.linalg import rq
+from pathlib import Path
+from matplotlib.axes import Axes
 
 
-def load_img(path):
+def load_img(path: str | Path) -> Image:
     img = Image.open(path)
     w, h = img.size
     new_size = (w // 4, h // 4)
@@ -12,7 +14,7 @@ def load_img(path):
     return img
 
 
-def select_points(img):
+def select_points(img: Image) -> np.array:
 
     """
     Function to select points from an image.
@@ -21,20 +23,23 @@ def select_points(img):
     """
 
     points = []
-
     img = np.array(img)
-    img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-    Y = img.shape[0] - 1
+    img = cv.cvtColor(img, cv.COLOR_RGB2BGR)
 
     # load reference
-    reference = load_img('./data/CALIB_ALEX_VEIKKA_SETUP.jpg')
+    reference = Image.open('./data/CALIB_ALEX_VEIKKA_SETUP.jpg')
     reference = np.array(reference)
-    reference = cv.cvtColor(reference, cv.COLOR_BGR2RGB)
+    reference = cv.cvtColor(reference, cv.COLOR_RGB2BGR)
 
+    # resize
+    img = cv.resize(img, (0, 0), fx=0.25, fy=0.25)
+    reference = cv.resize(reference, (0, 0), fx=0.25, fy=0.25)
+    
     # clip reference
     reference = reference[:, 350:]
     reference = reference[:, :650]
-    
+
+    # canvas
     img = np.concat((img, reference), 1)
 
     def click_event(event, x, y, flags, param):
@@ -42,7 +47,7 @@ def select_points(img):
         if event == cv.EVENT_LBUTTONDOWN:
             cv.circle(param, (x, y), 4, (255, 0, 255), -1)
             cv.imshow("Image", param)
-            points.append((x, Y - y))
+            points.append((x, y))
 
     cv.imshow("Image", img)
     cv.setMouseCallback("Image", click_event, img)
@@ -55,10 +60,10 @@ def select_points(img):
             break
     cv.destroyAllWindows()
 
-    return np.stack(points)
+    return np.stack(points) * 4
 
 
-def calibrate(points2d, points3d):
+def calibrate(points2d: np.array, points3d: np.array) -> np.array:
 
     """
     Performs direct linear transform (DLT)
@@ -85,7 +90,7 @@ def calibrate(points2d, points3d):
     return M
 
 
-def calibrate_norm(points2d, points3d):
+def calibrate_norm(points2d: np.array, points3d: np.array) -> np.array:
 
     """DLT woth normalization"""
 
@@ -116,7 +121,7 @@ def calibrate_norm(points2d, points3d):
     return denormalized_M
 
 
-def extract_params(M):
+def extract_params(M: np.array) -> tuple[np.array]:
 
     """
     Reference: https://www.youtube.com/watch?v=2XM2Rb2pfyQ
@@ -132,7 +137,8 @@ def extract_params(M):
     return intrinsic_params, extrinsic_params
 
 
-def plot_frame(extrinsic, ax, name="", s=10, l=10):
+def plot_frame(extrinsic: np.array, ax: Axes, name: str = "",
+               s: int = 10, l: int = 10) -> None:
 
     """
     Function that plots the world frames from
@@ -159,3 +165,41 @@ def plot_frame(extrinsic, ax, name="", s=10, l=10):
     ax.text(*(center + Ux * l), f"{name}X")
     ax.text(*(center + Uy * l), f"{name}Y")
     ax.text(*(center + Uz * l), f"{name}Z")
+
+
+def locate_bot(img: Image) -> np.array:
+
+    """
+    Locates robot purple disk and two yellow bars.
+    Returns points in the image plane.
+
+    [disk, bar1, bar2]
+    """
+
+    img = np.array(img)
+
+    # threshold color in HSV
+    hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
+    mask_y = cv.inRange(hsv, (20, 90, 120), (40, 255, 255))
+    mask_m = cv.inRange(hsv, (140, 90, 30), (160, 255, 255))
+    mask = mask_m | mask_y
+
+    # simplify mask
+    kernel = np.ones((5, 5), dtype=np.uint8)
+    opened = cv.morphologyEx(mask, cv.MORPH_OPEN, kernel)
+    closed = cv.morphologyEx(opened, cv.MORPH_OPEN, kernel)
+    
+    # collect contours and their moments
+    contours, _ = cv.findContours(closed, cv.RETR_LIST, cv.CHAIN_APPROX_NONE)
+    moments = map(cv.moments, contours)
+    moments = np.array([[*map(m.get, ('m00', 'm10', 'm01'))] for m in moments])
+    
+    # filter out 3 largest contours based on area (ideally disk and bars)
+    areas = moments[:, 0]
+    idx = areas.argsort()[::-1]
+    actual = moments[idx[:3]]
+
+    # compute centroids (center of mass)
+    centroids = actual[:, 1:] / actual[:, :1] # xy
+
+    return centroids
