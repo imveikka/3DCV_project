@@ -243,4 +243,3 @@ def locate_rest(img: Image) -> list[np.array]:
         coords.append(coord)
 
     return coords
-

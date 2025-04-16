@@ -1,6 +1,7 @@
 
 import numpy as np
 from PIL import Image
+from src import *
 # You can import any other files that you use.
 # Please also provide pip requirements file for any additional libraries that you might need
 
