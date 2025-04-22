@@ -41,7 +41,7 @@ def select_points(img: Image) -> np.array:
     reference = reference[:, :650]
 
     # canvas
-    img = np.concat((img, reference), 1)
+    img = np.concatenate((img, reference), 1)
 
     def click_event(event, x, y, flags, param):
         nonlocal points
@@ -71,17 +71,17 @@ def calibrate(points2d: np.array, points3d: np.array) -> np.array:
     """
 
     n = len(points3d)
-    biased = np.concat((points3d, np.ones((n, 1))), 1)
+    biased = np.concatenate((points3d, np.ones((n, 1))), 1)
 
-    top_left = np.concat((biased, np.zeros((n, 4))), 1)
+    top_left = np.concatenate((biased, np.zeros((n, 4))), 1)
     bot_left = np.roll(top_left, 4, axis=1)
 
     top_right = -biased * points2d[:, 0:1]
     bot_right = -biased * points2d[:, 1:2]
 
-    system = np.concat(
-        (np.concat((top_left, top_right), 1), 
-         np.concat((bot_left, bot_right), 1)), 0
+    system = np.concatenate(
+        (np.concatenate((top_left, top_right), 1), 
+         np.concatenate((bot_left, bot_right), 1)), 0
     )
 
     _, _, Vh = np.linalg.svd(system)
@@ -132,8 +132,8 @@ def extract_params(M: np.array) -> tuple[np.array]:
     t = np.linalg.inv(K) @ M[:, 3:4]
 
     intrinsic_params = np.pad(K, ((0, 0), (0, 1)))
-    extrinsic_params = np.concat((R, t), 1)
-    extrinsic_params = np.concat((extrinsic_params, [[0, 0, 0, 1]]))
+    extrinsic_params = np.concatenate((R, t), 1)
+    extrinsic_params = np.concatenate((extrinsic_params, [[0, 0, 0, 1]]))
 
     return intrinsic_params, extrinsic_params
 
@@ -304,3 +304,12 @@ def locate_blue(img: Image) -> list[np.array]:
         coords = [r.coords[:, ::-1] for r in regions[::-1]]
 
     return coords
+
+
+def img_to_world(points, calib, z):
+    n = len(points)
+    A = np.linalg.inv(calib[:, [0, 1, 3]])
+    b = calib[:, 2:3]
+    points = np.concatenate((points.T, [[1] * n]), 0)
+    out = A @ (points - z * b)
+    return (out[:-1] / out[-1]).T
