@@ -200,46 +200,107 @@ def locate_bot(img: Image) -> list[np.array]:
     return coords
 
 
-def locate_rest(img: Image) -> list[np.array]:
+def locate_red(img: Image) -> list[np.array]:
 
     """
-    Locates red, green and blue cubes and goals from the image.
+    Locates red cube and goal from the image.
     Returns points from the image plane.
 
-    [[red_cube, red_goal], [green_cube, green_goal], [blue_cube, blue_goal]]
+    [cube, goal]
     """
 
     img = np.array(img)
 
     # threshold color in HSV
     hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
-
     red = cv.inRange(hsv, (0, 90, 50), (10, 255, 255))
     red += cv.inRange(hsv, (170, 90, 50), (179, 255, 255))
-    green = cv.inRange(hsv, (40, 30, 30), (70, 255, 255))
-    blue = cv.inRange(hsv, (110, 30, 30), (130, 255, 255))
 
     # simplify masks
     red = cv.morphologyEx(red, cv.MORPH_OPEN, np.ones((7, 7)))
     red = cv.morphologyEx(red, cv.MORPH_CLOSE, np.ones((11, 11)))
+
+    labels = skimage.measure.label(red)
+    regions = skimage.measure.regionprops(labels)
+
+    # filter out 2 largest contours based on area (ideally cube and goal)
+    areas = np.array([r.area for r in regions])
+    idx = areas.argsort()[::-1]
+    regions = [regions[i] for i in idx[:2]]
+    y, x = map(int, regions[0].centroid)
+    if red[y, x] != 0: # cube
+        coords = [r.coords[:, ::-1] for r in regions]
+    else: # goal
+        coords = [r.coords[:, ::-1] for r in regions[::-1]]
+
+    return coords
+
+
+def locate_green(img: Image) -> list[np.array]:
+
+    """
+    Locates green cube and goal from the image.
+    Returns points from the image plane.
+
+    [cube, goal]
+    """
+
+    img = np.array(img)
+
+    # threshold color in HSV
+    hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
+    green = cv.inRange(hsv, (40, 30, 30), (70, 255, 255))
+
+    # simplify masks
     green = cv.morphologyEx(green, cv.MORPH_OPEN, np.ones((7, 7)))
     green = cv.morphologyEx(green, cv.MORPH_CLOSE, np.ones((11, 11)))
+
+    labels = skimage.measure.label(green)
+    regions = skimage.measure.regionprops(labels)
+
+    # filter out 2 largest contours based on area (ideally cube and goal)
+    areas = np.array([r.area for r in regions])
+    idx = areas.argsort()[::-1]
+    regions = [regions[i] for i in idx[:2]]
+    y, x = map(int, regions[0].centroid)
+    if green[y, x] != 0: # cube
+        coords = [r.coords[:, ::-1] for r in regions]
+    else: # goal
+        coords = [r.coords[:, ::-1] for r in regions[::-1]]
+
+    return coords
+
+
+def locate_blue(img: Image) -> list[np.array]:
+
+    """
+    Locates blue cube and goal from the image.
+    Returns points from the image plane.
+
+    [cube, goal]
+    """
+
+    img = np.array(img)
+
+    # threshold color in HSV
+    hsv = cv.cvtColor(img, cv.COLOR_RGB2HSV)
+    blue = cv.inRange(hsv, (110, 30, 30), (130, 255, 255))
+
+    # simplify masks
     blue = cv.morphologyEx(blue, cv.MORPH_OPEN, np.ones((7, 7)))
     blue = cv.morphologyEx(blue, cv.MORPH_CLOSE, np.ones((11, 11)))
 
-    coords = []
-    for color in (red, green, blue):
-        labels = skimage.measure.label(color)
-        regions = skimage.measure.regionprops(labels)
-        # filter out 2 largest contours based on area (ideally cube and goal)
-        areas = np.array([r.area for r in regions])
-        idx = areas.argsort()[::-1]
-        regions = [regions[i] for i in idx[:2]]
-        y, x = map(int, regions[0].centroid)
-        if color[y, x] != 0: # cube
-            coord = [r.coords[:, ::-1] for r in regions]
-        else: # goal
-            coord = [r.coords[:, ::-1] for r in regions[::-1]]
-        coords.append(coord)
+    labels = skimage.measure.label(blue)
+    regions = skimage.measure.regionprops(labels)
+
+    # filter out 2 largest contours based on area (ideally cube and goal)
+    areas = np.array([r.area for r in regions])
+    idx = areas.argsort()[::-1]
+    regions = [regions[i] for i in idx[:2]]
+    y, x = map(int, regions[0].centroid)
+    if blue[y, x] != 0: # cube
+        coords = [r.coords[:, ::-1] for r in regions]
+    else: # goal
+        coords = [r.coords[:, ::-1] for r in regions[::-1]]
 
     return coords
