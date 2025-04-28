@@ -42,7 +42,7 @@ Brief explanations of the stages.
 1. Using hue channel from the HSI formatted image, segment
     1. bot: purple disk and yellow bars
     2. red/green/blue block and goal
-2. Convert each segment coordinates from image coordinates $\begin{bmatrix} x & y \end{bmatrix}^T$ to world coordinates $\begin{bmatrix} X & Y  & Z \end{bmatrix}^T$. 
+2. Convert each segment coordinates from image coordinates $[x~ y]^T$ to world coordinates $[X ~Y ~Z]^T$. 
 
 Knowing that
 ```math
