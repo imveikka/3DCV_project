@@ -45,16 +45,22 @@ Brief explanations of the stages.
 2. Convert each segment coordinates from image coordinates $\begin{bmatrix} x & y \end{bmatrix}^T$ to world coordinates $\begin{bmatrix} X & Y  & Z \end{bmatrix}^T$. 
 
 Knowing that
-$$\begin{bmatrix} x \\ y  \\ 1 \end{bmatrix} = M \begin{bmatrix} X \\ Y  \\ Z \\ W \end{bmatrix},$$
+```math
+\begin{bmatrix} x \\ y  \\ 1 \end{bmatrix} = M \begin{bmatrix} X \\ Y  \\ Z \\ W \end{bmatrix},
+```
 and since M and Z is known (height of each object is known in world coordinates w.r.t table), we have
-$$\begin{bmatrix} X \\ Y  \\ W \end{bmatrix} = M_{\{1, 2, 4\}}^{-1}\left( \begin{bmatrix} x \\ y  \\ 1 \end{bmatrix} - M_{\{3\}} Z \right).$$
+```math
+\begin{bmatrix} X \\ Y  \\ W \end{bmatrix} = M_{\{1, 2, 4\}}^{-1}\left( \begin{bmatrix} x \\ y  \\ 1 \end{bmatrix} - M_{\{3\}} Z \right).
+```
 Finally, set $X:=\frac{X}{W}$ and $Y:=\frac{Y}{W}$.
 3. Compute center of mass for each segment in world coordinates $\rightarrow$ approximate location of each object.
 
 ### Guiding the robot
 
-Using vector dot product property 
-$$\frac{x \cdot y}{|x||y|} = \cos{\theta},$$
+Using vector dot product property
+```math
+\frac{x \cdot y}{|x||y|} = \cos{\theta},
+```
 we can determine all necessary rotations for the bot. The angle is computed using `numpy.acos`, which returns always the smallest positive angle that satisfy the equation, hence it doesn't consider the rotation direction.
 
 Fitting a line through the approximate locations of purple disk and yellow bars, the sign of the rotation angle can be determined: if the target is below the line, set the angle negative, otherwise positive.
