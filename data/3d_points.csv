@@ -1,0 +1,10 @@
+ idx,desc, x, y, z
+0,origo,0.0,0.0,0.0
+1,blue_top_l,0.0,36.0,4.0
+2,blue_bot_r,4.0,32.0,0.0
+3,red_top_l,12.0,24.0,4.0
+4,red_bot_r,16.0,20.0,0.0
+5,green_top_l,16.0,4.0,4.0
+6,green_bot_r,20.0,0.0,0.0
+7,check_top_r,28.0,36.0,0.0
+8,check_bot_r,28.0,0.0,0.0
